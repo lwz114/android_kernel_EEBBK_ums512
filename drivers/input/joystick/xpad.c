@@ -74,6 +74,50 @@
 #include <linux/usb/quirks.h>
 #include <linux/timer.h>
 
+/* Xpad Linux 4.14 kernel fix */
+#include <linux/version.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0)
+#define ida_alloc(ida, gfp) ida_simple_get((ida), 0, 0, (gfp))
+#define ida_free(ida, id)   ida_simple_remove((ida), (id))
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+static inline int usb_control_msg_recv(struct usb_device *dev, __u8 endpoint,
+				       __u8 request, __u8 requesttype,
+				       __u16 value, __u16 index,
+				       void *driver_data, __u16 size,
+				       int timeout, gfp_t memflags)
+{
+	unsigned char *data;
+	int ret;
+
+	if (!size)
+		return -EINVAL;
+
+	data = kmalloc(size, memflags);
+	if (!data)
+		return -ENOMEM;
+
+	ret = usb_control_msg(dev, usb_rcvctrlpipe(dev, endpoint),
+			      request, requesttype, value, index,
+			      data, size, timeout);
+	if (ret < 0)
+		goto out;
+
+	if (ret == size) {
+		memcpy(driver_data, data, size);
+		ret = 0;
+	} else {
+		ret = -EREMOTEIO;
+	}
+
+out:
+	kfree(data);
+	return ret;
+}
+#endif
+
+
 // backward compatibility. del_timer_sync is renamed to timer_delete_sync since 6.15.0
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6,15,0)
 #define timer_delete_sync del_timer_sync
